@@ -1,5 +1,4 @@
 #cuda==10.1
-numba==0.48
 numpy==1.17.0
 SoundFile
 librosa==0.7.2
