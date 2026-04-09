@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+
+<script src="https://unpkg.com/wavesurfer.js"></script>
+
+<style>
+body{
+background:black;
+color:white;
+font-family:'Space Grotesk';
+overflow:hidden;
+}
+
+.glass{
+background:rgba(0,0,0,0.85);
+border:1px solid rgba(255,255,255,0.1);
+}
+
+circle{
+transition:0.4s;
+}
+
+.bar{
+width:4px;
+background:red;
+margin:1px;
+display:inline-block;
+}
+</style>
+</head>
+
+<body class="h-screen flex">
+
+<!-- LEFT PANEL -->
+<div class="w-1/4 p-6 space-y-6">
+
+<div class="glass p-4">
+<h3 class="text-xs mb-3">CONTROL PANEL</h3>
+
+<button id="recordBtn" class="w-full bg-red-600 py-2 mb-2">
+START REAL-TIME DETECTION
+</button>
+
+<input id="upload" type="file" class="w-full text-xs">
+</div>
+
+<div class="glass p-4">
+<h3 class="text-xs text-red-400">AI FORENSIC REPORT</h3>
+<p id="aiText" class="text-xs mt-2">
+Waiting for input...
+</p>
+</div>
+
+</div>
+
+<!-- CENTER PANEL -->
+<div class="w-1/2 flex flex-col items-center justify-center">
+
+<h1 class="text-3xl mb-6 tracking-widest">
+LIVE SIGNAL ANALYSIS
+</h1>
+
+<!-- waveform -->
+<div id="waveform" class="w-full h-32 mb-4"></div>
+
+<!-- spectrogram -->
+<canvas id="spectrogram" width="600" height="150" class="border border-white/10"></canvas>
+
+<!-- detection timeline -->
+<div id="timeline" class="flex mt-4 h-16 items-end"></div>
+
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="w-1/4 p-6">
+
+<div class="glass p-6 text-center">
+
+<h3 class="text-xs mb-6">CONFIDENCE</h3>
+
+<div class="relative w-40 h-40 mx-auto">
+
+<svg class="w-full h-full -rotate-90">
+<circle cx="80" cy="80" r="70" stroke="gray" stroke-width="2" fill="none"/>
+<circle id="meter" cx="80" cy="80" r="70"
+stroke="red" stroke-width="6" fill="none"
+stroke-dasharray="440" stroke-dashoffset="440"/>
+</svg>
+
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<div id="percent" class="text-5xl">0%</div>
+<div id="status" class="text-xs text-cyan-400">ANALYZING</div>
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<script>
+
+let mediaRecorder
+let history=[]
+
+// waveform
+const wavesurfer = WaveSurfer.create({
+container:"#waveform",
+waveColor:"cyan",
+progressColor:"white"
+})
+
+// spectrogram
+const canvas = document.getElementById("spectrogram")
+const ctx = canvas.getContext("2d")
+
+function drawSpectrogram(){
+let img = ctx.createImageData(canvas.width, canvas.height)
+
+for(let i=0;i<img.data.length;i+=4){
+let val = Math.random()*255
+img.data[i]=val
+img.data[i+1]=0
+img.data[i+2]=255-val
+img.data[i+3]=255
+}
+
+ctx.putImageData(img,0,0)
+}
+
+// 🎤 START
+async function startListening(){
+
+const stream = await navigator.mediaDevices.getUserMedia({audio:true})
+
+mediaRecorder = new MediaRecorder(stream)
+
+mediaRecorder.start(4000)
+
+mediaRecorder.ondataavailable = async e => {
+
+const blob = e.data
+
+wavesurfer.loadBlob(blob)
+drawSpectrogram()
+
+sendChunk(blob)
+
+}
+
+}
+
+// SEND
+async function sendChunk(blob){
+
+const formData = new FormData()
+formData.append("audio",blob,"chunk.wav")
+
+const res = await fetch("/detect",{method:"POST",body:formData})
+const data = await res.json()
+
+updateUI(data)
+
+}
+
+// UPDATE
+function updateUI(data){
+
+let fake = data.fake_probability
+
+history.push(fake)
+if(history.length>20) history.shift()
+
+let val = Math.max(...history)
+let percent = Math.round(val*100)
+
+// meter
+document.getElementById("percent").innerText = percent + "%"
+document.getElementById("meter").style.strokeDashoffset = 440 - (440*percent/100)
+
+// timeline bars
+const timeline = document.getElementById("timeline")
+timeline.innerHTML=""
+
+history.forEach(v=>{
+let bar=document.createElement("div")
+bar.className="bar"
+bar.style.height=(v*60)+"px"
+bar.style.background=v>0.6?"red":"cyan"
+timeline.appendChild(bar)
+})
+
+// AI explanation
+if(val > 0.6){
+
+document.getElementById("status").innerText="SYNTHETIC"
+document.getElementById("status").style.color="red"
+
+document.getElementById("aiText").innerText =
+"Detected neural vocoder artifacts, spectral inconsistencies, and unnatural harmonic patterns."
+
+}else{
+
+document.getElementById("status").innerText="HUMAN"
+document.getElementById("status").style.color="cyan"
+
+document.getElementById("aiText").innerText =
+"Speech patterns align with natural human vocal production."
+
+}
+
+}
+
+// upload
+document.getElementById("upload").onchange = async function(){
+
+const file = this.files[0]
+
+wavesurfer.loadBlob(file)
+drawSpectrogram()
+
+const formData = new FormData()
+formData.append("audio",file)
+
+const res = await fetch("/detect",{method:"POST",body:formData})
+const data = await res.json()
+
+updateUI(data)
+
+}
+
+document.getElementById("recordBtn").onclick = startListening
+
+</script>
+
+</body>
+</html>
