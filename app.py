@@ -2,17 +2,35 @@ from flask import Flask, render_template, request, jsonify
 import os
 import uuid
 import subprocess
+import gdown
 from eval import predict_audio
 
 app = Flask(__name__)
 
-MODEL_PATH = r"E:\PythonProjects\DeepFake_Audio_GUI\LibriSeVoc-1k\librifake_pretrained_lambda0.5_epoch_25.pth"
+# ✅ Model path
+MODEL_PATH = "model.pth"
 
+# ✅ Google Drive FILE ID
+FILE_ID = "1Ad2PWuzmW_XObp2ojKS6uDjURuSSAtRw"
+
+# ✅ Download model automatically
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        print("📥 Downloading model from Google Drive...")
+
+        url = f"https://drive.google.com/uc?id={FILE_ID}"
+        gdown.download(url, MODEL_PATH, quiet=False)
+
+        print("✅ Model downloaded successfully")
+
+download_model()
+
+# ✅ Temp folder
 UPLOAD_FOLDER = "temp_audio"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# 🔧 Convert ANY audio → standard WAV (24kHz mono)
+# 🔧 Convert audio → WAV
 def convert_to_wav(input_path, output_path):
     command = [
         "ffmpeg",
@@ -37,7 +55,6 @@ def home():
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
-        # ✅ Validate request
         if "audio" not in request.files:
             return jsonify({"error": "No audio file provided"}), 400
 
@@ -46,24 +63,22 @@ def detect():
         if file.filename == "":
             return jsonify({"error": "Empty filename"}), 400
 
-        # ✅ Save original file
+        # Save file
         ext = os.path.splitext(file.filename)[1] or ".webm"
         raw_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4()}{ext}")
         wav_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4()}.wav")
 
         file.save(raw_path)
 
-        # ✅ Convert to WAV
+        # Convert
         convert_to_wav(raw_path, wav_path)
 
-        # ✅ Predict
+        # Predict
         result = predict_audio(wav_path, MODEL_PATH)
 
-        # ✅ Cleanup
-        if os.path.exists(raw_path):
-            os.remove(raw_path)
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+        # Cleanup
+        os.remove(raw_path)
+        os.remove(wav_path)
 
         return jsonify(result)
 

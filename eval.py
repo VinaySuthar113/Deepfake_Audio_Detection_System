@@ -3,24 +3,22 @@ import numpy as np
 import librosa
 import yaml
 from torch.nn import functional as F
-
 from model import RawNet
 
-CONFIG_PATH = r"E:\PythonProjects\DeepFake_Audio_GUI\Synthetic-Voice-Detection-Vocoder-Artifacts-main\model_config_RawNet.yaml"
+CONFIG_PATH = "model_config_RawNet.yaml"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = None
 
 
-# ✅ Load model once
 def load_model(model_path):
     global model
 
     if model is not None:
         return
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "r") as f:
         config = yaml.safe_load(f)
 
     model = RawNet(config["model"], device)
@@ -31,10 +29,9 @@ def load_model(model_path):
     model.to(device)
     model.eval()
 
-    print("✅ Model loaded successfully")
+    print("✅ Model loaded")
 
 
-# ✅ Pad / trim audio
 def pad_audio(audio, max_len=96000):
     if len(audio) >= max_len:
         return audio[:max_len]
@@ -44,45 +41,37 @@ def pad_audio(audio, max_len=96000):
     return padded
 
 
-# ✅ Preprocess audio safely
 def preprocess_audio(audio_path):
     try:
         audio, sr = librosa.load(audio_path, sr=None)
-    except Exception:
+    except:
         return None
 
-    # 🚨 Basic validation
     if audio is None or len(audio) == 0:
         return None
 
-    # Remove silence
     audio, _ = librosa.effects.trim(audio)
 
     if len(audio) < 1000:
         return None
 
-    # 🚨 Remove NaN
     if np.isnan(audio).any():
         return None
 
-    # Normalize safely
     max_val = np.max(np.abs(audio))
     if max_val > 0:
         audio = audio / max_val
 
-    # Resample
     if sr != 24000:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=24000)
 
     audio = pad_audio(audio)
 
-    # Convert to tensor
     audio = torch.tensor(audio).float().unsqueeze(0)
 
     return audio
 
 
-# ✅ Prediction
 def predict_audio(audio_path, model_path):
     load_model(model_path)
 
@@ -101,26 +90,13 @@ def predict_audio(audio_path, model_path):
         with torch.no_grad():
             logits, _ = model(audio)
 
-            # 🚨 Check invalid logits
-            if torch.isnan(logits).any() or torch.isinf(logits).any():
-                return {
-                    "prediction": "ERROR",
-                    "fake_probability": 0.0,
-                    "real_probability": 0.0
-                }
+            if torch.isnan(logits).any():
+                return {"prediction": "ERROR", "fake_probability": 0.0, "real_probability": 0.0}
 
             probs = F.softmax(logits, dim=-1)
 
         fake_prob = probs[0][0].item()
         real_prob = probs[0][1].item()
-
-        # 🚨 Final check
-        if np.isnan(fake_prob) or np.isnan(real_prob):
-            return {
-                "prediction": "ERROR",
-                "fake_probability": 0.0,
-                "real_probability": 0.0
-            }
 
         prediction = "FAKE" if fake_prob > 0.6 else "REAL"
 
